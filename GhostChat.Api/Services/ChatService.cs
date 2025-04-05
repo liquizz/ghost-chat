@@ -11,20 +11,27 @@ namespace GhostChat.Api.Services;
 public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService> logger)
     : GhostChat.Api.ChatService.ChatServiceBase
 {
-    private readonly ConcurrentDictionary<string, ConcurrentBag<KeyRequest>> _pendingKeyRequests = new();
-    private readonly ConcurrentDictionary<string, string> _messageIdGenerator = new();
+    private class KeyExchangeState
+    {
+        public byte[] KeyMaterial { get; set; }
+        public bool NotificationSent { get; set; }
+        public DateTimeOffset LastUpdate { get; set; }
+    }
+
+    // Store key exchange state for each pair of users
+    private readonly ConcurrentDictionary<(string From, string To), KeyExchangeState?> _keyExchangeStates = new();
 
     /// <summary>
     /// Handles a request to join the chat and creates a new anonymous session
     /// </summary>
     public override Task<SessionResponse> JoinChat(SessionRequest request, ServerCallContext context)
     {
-        logger.LogInformation("JoinChat request received with pseudonym: {Pseudonym}", 
+        logger.LogInformation("JoinChat request received with pseudonym: {Pseudonym}",
             string.IsNullOrEmpty(request.Pseudonym) ? "(anonymous)" : request.Pseudonym);
-        
+
         var session = sessionManager.CreateSession(request.Pseudonym);
         var timestamp = new DateTimeOffset(session.CreatedAt.Ticks, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        
+
         return Task.FromResult(new SessionResponse
         {
             SessionId = session.SessionId,
@@ -40,7 +47,7 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
     {
         logger.LogInformation("SendMessage request received from {SenderId} to {RecipientId}",
             request.SenderId, request.RecipientId);
-        
+
         // Validate sender exists
         var sender = sessionManager.GetSession(request.SenderId);
         if (sender == null)
@@ -52,13 +59,13 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
                 ErrorMessage = "Sender session not found"
             });
         }
-        
+
         // Update sender's last activity timestamp
         sessionManager.UpdateSessionActivity(request.SenderId);
-        
+
         // Generate a unique message ID
         var messageId = Guid.NewGuid().ToString();
-        
+
         // Create the message object
         var message = new ChatMessage
         {
@@ -69,21 +76,19 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
             Timestamp = DateTimeOffset.UtcNow,
             Nonce = request.Nonce?.ToByteArray()
         };
-        
+
         // Route the message to the recipient (if online)
         var recipient = sessionManager.GetSession(request.RecipientId);
         if (recipient is { StreamWriter: not null })
         {
-            // The recipient is online with an active stream
             _ = DeliverMessageAsync(recipient, message);
         }
         else
         {
             logger.LogWarning("Recipient {RecipientId} is offline or has no active stream", request.RecipientId);
-            // In a real application, we might queue the message for delivery when the recipient connects
-            // For this simple example, messages are not stored if the recipient is offline
+            // In a real app, you might queue the message for future delivery. This sample just logs a warning.
         }
-        
+
         // Return acknowledgment
         var serverTimestamp = new DateTimeOffset(message.Timestamp.Ticks, TimeSpan.Zero).ToUnixTimeMilliseconds();
         return Task.FromResult(new MessageAck
@@ -101,7 +106,7 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
     {
         var sessionId = request.SessionId;
         logger.LogInformation("MessageStream request received for session {SessionId}", sessionId);
-        
+
         // Validate the session exists
         var session = sessionManager.GetSession(sessionId);
         if (session == null)
@@ -109,7 +114,7 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
             logger.LogWarning("MessageStream rejected: Session {SessionId} not found", sessionId);
             throw new RpcException(new Status(StatusCode.NotFound, "Session not found"));
         }
-        
+
         // Set up cancellation
         var cts = new CancellationTokenSource();
         try
@@ -117,10 +122,10 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
             // Update the session with the stream writer
             session.StreamWriter = responseStream;
             session.CancellationTokenSource = cts;
-            
+
             // Update session activity
             sessionManager.UpdateSessionActivity(sessionId);
-            
+
             // Keep the stream open until the client disconnects
             var tcs = new TaskCompletionSource<bool>();
             await using var ctr = context.CancellationToken.Register(() => tcs.TrySetResult(true));
@@ -146,13 +151,13 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
     }
 
     /// <summary>
-    /// Handles key exchange between clients
+    /// Handles key exchange between clients using a combined dictionary key
     /// </summary>
     public override Task<KeyResponse> KeyExchange(KeyRequest request, ServerCallContext context)
     {
         logger.LogInformation("KeyExchange request received from {SessionId} to {RecipientId}",
             request.SessionId, string.IsNullOrEmpty(request.RecipientId) ? "(server)" : request.RecipientId);
-        
+
         // Validate sender exists
         var sender = sessionManager.GetSession(request.SessionId);
         if (sender == null)
@@ -165,11 +170,11 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
                 SessionId = request.SessionId
             });
         }
-        
+
         // Update sender activity
         sessionManager.UpdateSessionActivity(request.SessionId);
-        
-        // If this is a key exchange with a specific recipient
+
+        // If there's a specific recipient, we attempt a peer-to-peer key exchange
         if (!string.IsNullOrEmpty(request.RecipientId))
         {
             var recipient = sessionManager.GetSession(request.RecipientId);
@@ -183,29 +188,113 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
                     SessionId = request.SessionId
                 });
             }
-            
-            // Store the key request for the recipient to retrieve
-            _pendingKeyRequests.GetOrAdd(request.RecipientId, _ => new ConcurrentBag<KeyRequest>())
-                .Add(request);
-            
+
+            var dictKey = (request.SessionId, request.RecipientId);
+            var reverseKey = (request.RecipientId, request.SessionId);
+
+            // If the request included a key, store it and notify the recipient
+            if (request.KeyMaterial?.Length > 0)
+            {
+                // Only store the key if we don't already have one from this sender
+                _keyExchangeStates.AddOrUpdate(
+                    dictKey,
+                    // Creation:
+                    _ => new KeyExchangeState
+                    {
+                        KeyMaterial = request.KeyMaterial.ToByteArray(),
+                        NotificationSent = false,
+                        LastUpdate = DateTimeOffset.UtcNow
+                    },
+                    // Update:
+                    (_, existingState) =>
+                    {
+                        // If the existing state is null, replace it completely
+                        if (existingState == null)
+                        {
+                            return new KeyExchangeState
+                            {
+                                KeyMaterial = request.KeyMaterial.ToByteArray(),
+                                NotificationSent = false,
+                                LastUpdate = DateTimeOffset.UtcNow
+                            };
+                        }
+
+                        // Even if it's less than 5 minutes old, go ahead and update 
+                        // the key material and timestamp now.
+                        existingState.KeyMaterial = request.KeyMaterial.ToByteArray();
+                        existingState.NotificationSent = false;
+                        existingState.LastUpdate = DateTimeOffset.UtcNow;
+
+                        return existingState;
+                    });
+
+                // Get the current state after potential update
+                var currentState = _keyExchangeStates[dictKey];
+                
+                // Only notify if we haven't sent a notification and recipient has a stream
+                if (!currentState.NotificationSent && recipient.StreamWriter != null)
+                {
+                    currentState.NotificationSent = true;
+                    _ = NotifyKeyExchangeRequestAsync(recipient, request.SessionId);
+                }
+                
+                logger.LogInformation("Stored/Retrieved key from {SenderId} for {RecipientId}", 
+                    request.SessionId, request.RecipientId);
+            }
+
+            // Look up any key that the recipient might have posted for this sender
+            if (_keyExchangeStates.TryGetValue(reverseKey, out var recipientState) && 
+                recipientState.KeyMaterial?.Length > 0)
+            {
+                // Don't remove the key immediately - keep it for a while in case of retries
+                logger.LogInformation("Found pending key from {RecipientId} for {SenderId}", 
+                    request.RecipientId, request.SessionId);
+
+                // Start a cleanup task that will remove the key after some time
+                _ = Task.Delay(TimeSpan.FromMinutes(5))
+                    .ContinueWith(_ => { _keyExchangeStates.TryRemove(reverseKey, out var _); });
+
+                return Task.FromResult(new KeyResponse
+                {
+                    Success = true,
+                    SessionId = request.SessionId,
+                    KeyMaterial = ByteString.CopyFrom(recipientState.KeyMaterial)
+                });
+            }
+
+            // Return a "wait for recipient's key" response if we stored our key but the other side has not yet posted theirs
+            if (request.KeyMaterial?.Length > 0)
+            {
+                logger.LogInformation("No pending key from {RecipientId} for {SenderId} yet, client should retry", 
+                    request.RecipientId, request.SessionId);
+                
+                return Task.FromResult(new KeyResponse
+                {
+                    Success = true,
+                    SessionId = request.SessionId,
+                    KeyMaterial = ByteString.Empty
+                });
+            }
+
+            // If client didn't send a key and there's no pending key, return an error
+            logger.LogWarning("KeyExchange failed: No key material provided and no pending key found");
             return Task.FromResult(new KeyResponse
             {
-                Success = true,
+                Success = false,
+                ErrorMessage = "No key material provided and no pending key found",
                 SessionId = request.SessionId
             });
         }
-        
-        // This is a key exchange with the server (not needed for E2EE, but included for flexibility)
+
+        // If no recipient was specified, we assume a server handshake (or just a do-nothing)
         return Task.FromResult(new KeyResponse
         {
             Success = true,
             SessionId = request.SessionId,
-            // In a true E2EE system, the server would not store or return key material
-            // This is just a placeholder for a possible server-side public key if needed
             KeyMaterial = ByteString.Empty
         });
     }
-    
+
     /// <summary>
     /// Delivers a message to a recipient's active stream
     /// </summary>
@@ -213,14 +302,13 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
     {
         if (recipient.StreamWriter == null)
         {
-            logger.LogWarning("Cannot deliver message: Recipient {RecipientId} has no active stream", 
+            logger.LogWarning("Cannot deliver message: Recipient {RecipientId} has no active stream",
                 recipient.SessionId);
             return;
         }
-        
+
         try
         {
-            // Convert to the gRPC message format
             var response = new MessageResponse
             {
                 MessageId = message.MessageId,
@@ -229,25 +317,56 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
                 EncryptedPayload = ByteString.CopyFrom(message.EncryptedPayload),
                 Timestamp = new DateTimeOffset(message.Timestamp.Ticks, TimeSpan.Zero).ToUnixTimeMilliseconds()
             };
-            
-            // Add the nonce if present
+
             if (message.Nonce != null)
             {
                 response.Nonce = ByteString.CopyFrom(message.Nonce);
             }
-            
-            // Send the message through the stream
+
             await recipient.StreamWriter.WriteAsync(response);
-            logger.LogInformation("Message {MessageId} delivered to {RecipientId}", 
+            logger.LogInformation("Message {MessageId} delivered to {RecipientId}",
                 message.MessageId, recipient.SessionId);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to deliver message {MessageId} to {RecipientId}",
                 message.MessageId, recipient.SessionId);
-                
-            // If we get an error delivering the message, we might want to close the stream
-            // as it likely indicates the client has disconnected
+
+            // If delivering failed, the client might have disconnected, so cancel
+            recipient.CancellationTokenSource?.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Notifies a client that another client wants to exchange keys with them
+    /// </summary>
+    private async Task NotifyKeyExchangeRequestAsync(ChatSession recipient, string senderId)
+    {
+        if (recipient.StreamWriter == null)
+        {
+            logger.LogWarning("Cannot notify recipient: {RecipientId} has no active stream", recipient.SessionId);
+            return;
+        }
+
+        try
+        {
+            var response = new MessageResponse
+            {
+                MessageId = Guid.NewGuid().ToString(),
+                SenderId = senderId,
+                RecipientId = recipient.SessionId,
+                IsKeyExchangeRequest = true,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            await recipient.StreamWriter.WriteAsync(response);
+            logger.LogInformation("Key exchange request notification sent to {RecipientId} from {SenderId}",
+                recipient.SessionId, senderId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send key exchange notification to {RecipientId}",
+                recipient.SessionId);
             recipient.CancellationTokenSource?.Cancel();
         }
     }

@@ -2,7 +2,7 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
-  height: 100vh;
+  height: calc(100vh - 40px); // Adjust height to account for padding
   display: flex;
   flex-direction: column;
 }
@@ -38,8 +38,9 @@
 .chat-interface {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   gap: 10px;
+  height: 100%;
 }
 
 .chat-header {
@@ -84,6 +85,8 @@
   gap: 10px;
   background-color: #f9f9f9;
   border-radius: 4px;
+  min-height: 200px; // Ensure minimum height for the messages container
+  max-height: calc(100vh - 250px); // Leave space for other elements
 
   .message {
     max-width: 70%;

@@ -925,6 +925,7 @@ export class MessageResponse implements GrpcMessage {
     _instance.encryptedPayload = _instance.encryptedPayload || new Uint8Array();
     _instance.timestamp = _instance.timestamp || '0';
     _instance.nonce = _instance.nonce || new Uint8Array();
+    _instance.isKeyExchangeRequest = _instance.isKeyExchangeRequest || false;
   }
 
   /**
@@ -957,6 +958,9 @@ export class MessageResponse implements GrpcMessage {
           break;
         case 6:
           _instance.nonce = _reader.readBytes();
+          break;
+        case 7:
+          _instance.isKeyExchangeRequest = _reader.readBool();
           break;
         default:
           _reader.skipField();
@@ -993,6 +997,9 @@ export class MessageResponse implements GrpcMessage {
     if (_instance.nonce && _instance.nonce.length) {
       _writer.writeBytes(6, _instance.nonce);
     }
+    if (_instance.isKeyExchangeRequest) {
+      _writer.writeBool(7, _instance.isKeyExchangeRequest);
+    }
   }
 
   private _messageId: string;
@@ -1001,6 +1008,7 @@ export class MessageResponse implements GrpcMessage {
   private _encryptedPayload: Uint8Array;
   private _timestamp: string;
   private _nonce: Uint8Array;
+  private _isKeyExchangeRequest: boolean;
 
   /**
    * Message constructor. Initializes the properties and applies default Protobuf values if necessary
@@ -1014,6 +1022,7 @@ export class MessageResponse implements GrpcMessage {
     this.encryptedPayload = _value.encryptedPayload;
     this.timestamp = _value.timestamp;
     this.nonce = _value.nonce;
+    this.isKeyExchangeRequest = _value.isKeyExchangeRequest;
     MessageResponse.refineValues(this);
   }
   get messageId(): string {
@@ -1052,6 +1061,12 @@ export class MessageResponse implements GrpcMessage {
   set nonce(value: Uint8Array) {
     this._nonce = value;
   }
+  get isKeyExchangeRequest(): boolean {
+    return this._isKeyExchangeRequest;
+  }
+  set isKeyExchangeRequest(value: boolean) {
+    this._isKeyExchangeRequest = value;
+  }
 
   /**
    * Serialize message to binary data
@@ -1075,7 +1090,8 @@ export class MessageResponse implements GrpcMessage {
         ? this.encryptedPayload.subarray(0)
         : new Uint8Array(),
       timestamp: this.timestamp,
-      nonce: this.nonce ? this.nonce.subarray(0) : new Uint8Array()
+      nonce: this.nonce ? this.nonce.subarray(0) : new Uint8Array(),
+      isKeyExchangeRequest: this.isKeyExchangeRequest
     };
   }
 
@@ -1103,7 +1119,8 @@ export class MessageResponse implements GrpcMessage {
         ? uint8ArrayToBase64(this.encryptedPayload)
         : '',
       timestamp: this.timestamp,
-      nonce: this.nonce ? uint8ArrayToBase64(this.nonce) : ''
+      nonce: this.nonce ? uint8ArrayToBase64(this.nonce) : '',
+      isKeyExchangeRequest: this.isKeyExchangeRequest
     };
   }
 }
@@ -1118,6 +1135,7 @@ export module MessageResponse {
     encryptedPayload: Uint8Array;
     timestamp: string;
     nonce: Uint8Array;
+    isKeyExchangeRequest: boolean;
   }
 
   /**
@@ -1130,6 +1148,7 @@ export module MessageResponse {
     encryptedPayload: string;
     timestamp: string;
     nonce: string;
+    isKeyExchangeRequest: boolean;
   }
 }
 

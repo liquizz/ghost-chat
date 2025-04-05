@@ -83,6 +83,8 @@ message MessageResponse {
   int64 timestamp = 5;
   // Optional initialization vector for encryption
   bytes nonce = 6;
+  // Indicates if the message is a key exchange request
+  bool is_key_exchange_request = 7;
 }
 
 // Key exchange request
