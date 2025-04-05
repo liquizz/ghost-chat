@@ -19,7 +19,7 @@ public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService
     }
 
     // Store key exchange state for each pair of users
-    private readonly ConcurrentDictionary<(string From, string To), KeyExchangeState?> _keyExchangeStates = new();
+    private static readonly ConcurrentDictionary<(string From, string To), KeyExchangeState?> _keyExchangeStates = new();
 
     /// <summary>
     /// Handles a request to join the chat and creates a new anonymous session

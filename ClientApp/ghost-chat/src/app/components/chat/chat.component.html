@@ -1,9 +1,9 @@
 <div class="chat-container">
   <!-- Connection Form -->
   <div class="connection-form" *ngIf="!isConnected">
-    <input 
-      type="text" 
-      [(ngModel)]="pseudonym" 
+    <input
+      type="text"
+      [(ngModel)]="pseudonym"
       placeholder="Enter your pseudonym"
       (keyup.enter)="connect()"
     >
@@ -14,22 +14,23 @@
   <div class="chat-interface" *ngIf="isConnected">
     <div class="chat-header">
       <span>Connected as: {{ pseudonym }}</span>
+      <span>Session ID: {{ sessionId }}</span>
       <button class="disconnect-btn" (click)="disconnect()">Disconnect</button>
     </div>
 
     <!-- Recipient Input -->
     <div class="recipient-input">
-      <input 
-        type="text" 
-        [(ngModel)]="recipientId" 
+      <input
+        type="text"
+        [(ngModel)]="recipientId"
         placeholder="Enter recipient's session ID"
       >
     </div>
 
     <!-- Messages List -->
     <div class="messages-list">
-      <div 
-        *ngFor="let message of messages" 
+      <div
+        *ngFor="let message of messages"
         class="message"
         [class.sent]="message.isSent"
         [class.received]="!message.isSent"
@@ -46,14 +47,14 @@
 
     <!-- Message Input -->
     <div class="message-input">
-      <input 
-        type="text" 
-        [(ngModel)]="messageText" 
+      <input
+        type="text"
+        [(ngModel)]="messageText"
         placeholder="Type your message..."
         (keyup.enter)="sendMessage()"
       >
-      <button 
-        (click)="sendMessage()" 
+      <button
+        (click)="sendMessage()"
         [disabled]="!messageText || !recipientId"
       >
         Send

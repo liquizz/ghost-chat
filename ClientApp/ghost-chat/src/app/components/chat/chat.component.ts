@@ -19,7 +19,8 @@ export class ChatComponent implements OnInit, OnDestroy {
   messageText: string = '';
   messages: ChatMessage[] = [];
   isConnected: boolean = false;
-  
+  sessionId: string | null = null;
+
   private destroy$ = new Subject<void>();
   private ongoingKeyExchanges = new Set<string>();
 
@@ -38,8 +39,9 @@ export class ChatComponent implements OnInit, OnDestroy {
   async connect() {
     try {
       // Generate encryption keys
-      const publicKey = await this.encryptionService.generateKeyPair();
-      
+      // const publicKey = await this.encryptionService.generateKeyPair();
+      // sessionId created on backend
+
       // Join chat with pseudonym
       this.chatService.joinChat(this.pseudonym)
         .pipe(takeUntil(this.destroy$))
@@ -49,6 +51,7 @@ export class ChatComponent implements OnInit, OnDestroy {
               this.chatService.setSessionId(response.sessionId);
               this.isConnected = true;
               this.startListeningForMessages();
+              this.sessionId = response.sessionId;
             } else {
               console.error('Failed to join chat:', response.errorMessage);
             }
@@ -70,7 +73,7 @@ export class ChatComponent implements OnInit, OnDestroy {
           try {
             // Handle key exchange request notifications
             if (message.isKeyExchangeRequest) {
-              if (!this.encryptionService.hasSharedKeyWith(message.senderId) && 
+              if (!this.encryptionService.hasSharedKeyWith(message.senderId) &&
                   !this.ongoingKeyExchanges.has(message.senderId)) {
                 console.log(`Received key exchange request from ${message.senderId}, initiating exchange...`);
                 await this.initiateKeyExchange(message.senderId);
@@ -187,12 +190,14 @@ export class ChatComponent implements OnInit, OnDestroy {
                     return;
                 }
 
+                console.log("public key", publicKey);
                 this.chatService.exchangeKey(peerId, publicKey)
                     .pipe(takeUntil(this.destroy$))
                     .subscribe({
                         next: async (response) => {
                             if (response.success) {
                                 // Check if keyMaterial exists and has content (not empty)
+                                console.log("response", response);
                                 if (response.keyMaterial?.length > 0) {
                                     try {
                                         // Use the received public key to derive shared secret
@@ -216,6 +221,7 @@ export class ChatComponent implements OnInit, OnDestroy {
                                 }
                             } else {
                                 // If the error indicates the peer doesn't exist, fail immediately
+                                console.log("errorMessage", response.errorMessage);
                                 if (response.errorMessage?.includes('not found')) {
                                     this.ongoingKeyExchanges.delete(peerId); // Clean up
                                     reject(new Error(response.errorMessage));

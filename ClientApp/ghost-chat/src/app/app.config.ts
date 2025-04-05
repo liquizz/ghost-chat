@@ -8,9 +8,9 @@ import { GRPC_CHAT_SERVICE_CLIENT_SETTINGS } from './proto/chat.pbconf';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideZoneChangeDetection({ eventCoalescing: true }), 
+    provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    { provide: GRPC_CHAT_SERVICE_CLIENT_SETTINGS, useValue: { host: 'http://192.168.1.223:5040' } },
+    { provide: GRPC_CHAT_SERVICE_CLIENT_SETTINGS, useValue: { host: 'http://localhost:5040' } },
     { provide: GRPC_CLIENT_FACTORY, useClass: GrpcWebClientFactory },
     { provide: GrpcHandler, useFactory: () => new GrpcHandler([new GrpcLoggerInterceptor()]) }
   ]
