@@ -8,28 +8,21 @@ namespace GhostChat.Api.Services;
 /// <summary>
 /// Implementation of the Chat gRPC service
 /// </summary>
-public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
+public class ChatService(IChatSessionManager sessionManager, ILogger<ChatService> logger)
+    : GhostChat.Api.ChatService.ChatServiceBase
 {
-    private readonly IChatSessionManager _sessionManager;
-    private readonly ILogger<ChatService> _logger;
     private readonly ConcurrentDictionary<string, ConcurrentBag<KeyRequest>> _pendingKeyRequests = new();
     private readonly ConcurrentDictionary<string, string> _messageIdGenerator = new();
-
-    public ChatService(IChatSessionManager sessionManager, ILogger<ChatService> logger)
-    {
-        _sessionManager = sessionManager;
-        _logger = logger;
-    }
 
     /// <summary>
     /// Handles a request to join the chat and creates a new anonymous session
     /// </summary>
     public override Task<SessionResponse> JoinChat(SessionRequest request, ServerCallContext context)
     {
-        _logger.LogInformation("JoinChat request received with pseudonym: {Pseudonym}", 
+        logger.LogInformation("JoinChat request received with pseudonym: {Pseudonym}", 
             string.IsNullOrEmpty(request.Pseudonym) ? "(anonymous)" : request.Pseudonym);
         
-        var session = _sessionManager.CreateSession(request.Pseudonym);
+        var session = sessionManager.CreateSession(request.Pseudonym);
         var timestamp = new DateTimeOffset(session.CreatedAt.Ticks, TimeSpan.Zero).ToUnixTimeMilliseconds();
         
         return Task.FromResult(new SessionResponse
@@ -45,14 +38,14 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
     /// </summary>
     public override Task<MessageAck> SendMessage(MessageRequest request, ServerCallContext context)
     {
-        _logger.LogInformation("SendMessage request received from {SenderId} to {RecipientId}",
+        logger.LogInformation("SendMessage request received from {SenderId} to {RecipientId}",
             request.SenderId, request.RecipientId);
         
         // Validate sender exists
-        var sender = _sessionManager.GetSession(request.SenderId);
+        var sender = sessionManager.GetSession(request.SenderId);
         if (sender == null)
         {
-            _logger.LogWarning("Message rejected: Sender session {SenderId} not found", request.SenderId);
+            logger.LogWarning("Message rejected: Sender session {SenderId} not found", request.SenderId);
             return Task.FromResult(new MessageAck
             {
                 Success = false,
@@ -61,7 +54,7 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
         }
         
         // Update sender's last activity timestamp
-        _sessionManager.UpdateSessionActivity(request.SenderId);
+        sessionManager.UpdateSessionActivity(request.SenderId);
         
         // Generate a unique message ID
         var messageId = Guid.NewGuid().ToString();
@@ -78,15 +71,15 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
         };
         
         // Route the message to the recipient (if online)
-        var recipient = _sessionManager.GetSession(request.RecipientId);
-        if (recipient != null && recipient.StreamWriter != null)
+        var recipient = sessionManager.GetSession(request.RecipientId);
+        if (recipient is { StreamWriter: not null })
         {
             // The recipient is online with an active stream
             _ = DeliverMessageAsync(recipient, message);
         }
         else
         {
-            _logger.LogWarning("Recipient {RecipientId} is offline or has no active stream", request.RecipientId);
+            logger.LogWarning("Recipient {RecipientId} is offline or has no active stream", request.RecipientId);
             // In a real application, we might queue the message for delivery when the recipient connects
             // For this simple example, messages are not stored if the recipient is offline
         }
@@ -107,13 +100,13 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
     public override async Task MessageStream(StreamRequest request, IServerStreamWriter<MessageResponse> responseStream, ServerCallContext context)
     {
         var sessionId = request.SessionId;
-        _logger.LogInformation("MessageStream request received for session {SessionId}", sessionId);
+        logger.LogInformation("MessageStream request received for session {SessionId}", sessionId);
         
         // Validate the session exists
-        var session = _sessionManager.GetSession(sessionId);
+        var session = sessionManager.GetSession(sessionId);
         if (session == null)
         {
-            _logger.LogWarning("MessageStream rejected: Session {SessionId} not found", sessionId);
+            logger.LogWarning("MessageStream rejected: Session {SessionId} not found", sessionId);
             throw new RpcException(new Status(StatusCode.NotFound, "Session not found"));
         }
         
@@ -126,22 +119,22 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
             session.CancellationTokenSource = cts;
             
             // Update session activity
-            _sessionManager.UpdateSessionActivity(sessionId);
+            sessionManager.UpdateSessionActivity(sessionId);
             
             // Keep the stream open until the client disconnects
             var tcs = new TaskCompletionSource<bool>();
-            using var ctr = context.CancellationToken.Register(() => tcs.TrySetResult(true));
-            using var ctsReg = cts.Token.Register(() => tcs.TrySetResult(true));
+            await using var ctr = context.CancellationToken.Register(() => tcs.TrySetResult(true));
+            await using var ctsReg = cts.Token.Register(() => tcs.TrySetResult(true));
             await tcs.Task;
         }
         catch (OperationCanceledException)
         {
             // Expected when the client disconnects
-            _logger.LogInformation("MessageStream ended for session {SessionId}", sessionId);
+            logger.LogInformation("MessageStream ended for session {SessionId}", sessionId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in MessageStream for session {SessionId}", sessionId);
+            logger.LogError(ex, "Error in MessageStream for session {SessionId}", sessionId);
         }
         finally
         {
@@ -157,14 +150,14 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
     /// </summary>
     public override Task<KeyResponse> KeyExchange(KeyRequest request, ServerCallContext context)
     {
-        _logger.LogInformation("KeyExchange request received from {SessionId} to {RecipientId}",
+        logger.LogInformation("KeyExchange request received from {SessionId} to {RecipientId}",
             request.SessionId, string.IsNullOrEmpty(request.RecipientId) ? "(server)" : request.RecipientId);
         
         // Validate sender exists
-        var sender = _sessionManager.GetSession(request.SessionId);
+        var sender = sessionManager.GetSession(request.SessionId);
         if (sender == null)
         {
-            _logger.LogWarning("KeyExchange rejected: Sender session {SessionId} not found", request.SessionId);
+            logger.LogWarning("KeyExchange rejected: Sender session {SessionId} not found", request.SessionId);
             return Task.FromResult(new KeyResponse
             {
                 Success = false,
@@ -174,15 +167,15 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
         }
         
         // Update sender activity
-        _sessionManager.UpdateSessionActivity(request.SessionId);
+        sessionManager.UpdateSessionActivity(request.SessionId);
         
         // If this is a key exchange with a specific recipient
         if (!string.IsNullOrEmpty(request.RecipientId))
         {
-            var recipient = _sessionManager.GetSession(request.RecipientId);
+            var recipient = sessionManager.GetSession(request.RecipientId);
             if (recipient == null)
             {
-                _logger.LogWarning("KeyExchange rejected: Recipient session {RecipientId} not found", request.RecipientId);
+                logger.LogWarning("KeyExchange rejected: Recipient session {RecipientId} not found", request.RecipientId);
                 return Task.FromResult(new KeyResponse
                 {
                     Success = false,
@@ -220,7 +213,7 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
     {
         if (recipient.StreamWriter == null)
         {
-            _logger.LogWarning("Cannot deliver message: Recipient {RecipientId} has no active stream", 
+            logger.LogWarning("Cannot deliver message: Recipient {RecipientId} has no active stream", 
                 recipient.SessionId);
             return;
         }
@@ -245,12 +238,12 @@ public class ChatService : GhostChat.Api.ChatService.ChatServiceBase
             
             // Send the message through the stream
             await recipient.StreamWriter.WriteAsync(response);
-            _logger.LogInformation("Message {MessageId} delivered to {RecipientId}", 
+            logger.LogInformation("Message {MessageId} delivered to {RecipientId}", 
                 message.MessageId, recipient.SessionId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deliver message {MessageId} to {RecipientId}",
+            logger.LogError(ex, "Failed to deliver message {MessageId} to {RecipientId}",
                 message.MessageId, recipient.SessionId);
                 
             // If we get an error delivering the message, we might want to close the stream
