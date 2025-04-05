@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GhostChat.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2c8de4556a2aba817122b4d35d701763602c318a")]
 [assembly: System.Reflection.AssemblyProductAttribute("GhostChat.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GhostChat.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
