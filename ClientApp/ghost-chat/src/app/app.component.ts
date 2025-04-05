@@ -1,12 +1,14 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { ChatComponent } from './components/chat/chat.component';
 
 @Component({
+  standalone: true,
   selector: 'app-root',
-  imports: [RouterOutlet],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.less'
+  styleUrls: ['./app.component.less'],
+  imports: [RouterOutlet, ChatComponent]
 })
 export class AppComponent {
-  title = 'ghost-chat';
+  title = 'Ghost Chat';
 }

@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+option csharp_namespace = "GhostChat.Api";
+
+package chat;
+
+// The Chat service definition for anonymous messaging
+service ChatService {
+  // Initiates a chat session and returns a session ID
+  rpc JoinChat (SessionRequest) returns (SessionResponse);
+  
+  // Accepts an encrypted message payload and metadata
+  rpc SendMessage (MessageRequest) returns (MessageAck);
+  
+  // Establishes a stream for receiving messages in real time
+  rpc MessageStream (StreamRequest) returns (stream MessageResponse);
+  
+  // Facilitates an initial cryptographic handshake for key exchange
+  rpc KeyExchange (KeyRequest) returns (KeyResponse);
+}
+
+// Request to join a chat session
+message SessionRequest {
+  // Optional pseudonym for the session (no real identification)
+  string pseudonym = 1;
+}
+
+// Response with session details
+message SessionResponse {
+  // Unique session identifier for this chat participant
+  string session_id = 1;
+  // Timestamp when the session was created
+  int64 created_at = 2;
+  // Status of the session creation
+  bool success = 3;
+  // Error message if session creation failed
+  string error_message = 4;
+}
+
+// Request to send a message
+message MessageRequest {
+  // Sender's session identifier
+  string sender_id = 1;
+  // Recipient's session identifier (empty for broadcast)
+  string recipient_id = 2;
+  // Encrypted message payload
+  bytes encrypted_payload = 3;
+  // Timestamp of the message
+  int64 timestamp = 4;
+  // Optional initialization vector for encryption
+  bytes nonce = 5;
+}
+
+// Acknowledgment of a message being accepted
+message MessageAck {
+  // Status of the message delivery
+  bool success = 1;
+  // Error message if message delivery failed
+  string error_message = 2;
+  // Server-assigned message ID
+  string message_id = 3;
+  // Server timestamp
+  int64 server_timestamp = 4;
+}
+
+// Request to establish a message stream
+message StreamRequest {
+  // Session identifier for the requesting client
+  string session_id = 1;
+}
+
+// Message response in the stream
+message MessageResponse {
+  // Unique message identifier
+  string message_id = 1;
+  // Sender's session identifier
+  string sender_id = 2;
+  // Recipient's session identifier
+  string recipient_id = 3;
+  // Encrypted message payload
+  bytes encrypted_payload = 4;
+  // Timestamp of the message
+  int64 timestamp = 5;
+  // Optional initialization vector for encryption
+  bytes nonce = 6;
+}
+
+// Key exchange request
+message KeyRequest {
+  // Sender's session identifier
+  string session_id = 1;
+  // Recipient's session identifier (empty for server key)
+  string recipient_id = 2;
+  // Public key or key material for exchange
+  bytes key_material = 3;
+}
+
+// Key exchange response
+message KeyResponse {
+  // Status of the key exchange
+  bool success = 1;
+  // Error message if key exchange failed
+  string error_message = 2;
+  // Response key material (if applicable)
+  bytes key_material = 3;
+  // Session identifier to which this key belongs
+  string session_id = 4;
+}

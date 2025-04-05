@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "K8RxlD+6Vmo=",
+  "dgSpecHash": "iYX+sXh6aUw=",
   "success": true,
   "projectFilePath": "/home/liquiz/RiderProjects/GhostChat/GhostChat.Api/GhostChat.Api.csproj",
   "expectedPackageFiles": [
@@ -8,6 +8,7 @@
     "/home/liquiz/.nuget/packages/grpc.aspnetcore/2.57.0/grpc.aspnetcore.2.57.0.nupkg.sha512",
     "/home/liquiz/.nuget/packages/grpc.aspnetcore.server/2.57.0/grpc.aspnetcore.server.2.57.0.nupkg.sha512",
     "/home/liquiz/.nuget/packages/grpc.aspnetcore.server.clientfactory/2.57.0/grpc.aspnetcore.server.clientfactory.2.57.0.nupkg.sha512",
+    "/home/liquiz/.nuget/packages/grpc.aspnetcore.web/2.70.0/grpc.aspnetcore.web.2.70.0.nupkg.sha512",
     "/home/liquiz/.nuget/packages/grpc.core.api/2.57.0/grpc.core.api.2.57.0.nupkg.sha512",
     "/home/liquiz/.nuget/packages/grpc.net.client/2.57.0/grpc.net.client.2.57.0.nupkg.sha512",
     "/home/liquiz/.nuget/packages/grpc.net.clientfactory/2.57.0/grpc.net.clientfactory.2.57.0.nupkg.sha512",

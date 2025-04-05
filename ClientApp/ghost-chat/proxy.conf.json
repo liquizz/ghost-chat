@@ -1,0 +1,7 @@
+{
+  "/chat.ChatService/*": {
+    "target": "http://localhost:5040",
+    "secure": false,
+    "changeOrigin": true
+  }
+}
